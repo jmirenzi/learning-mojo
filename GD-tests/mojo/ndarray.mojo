@@ -9,6 +9,7 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
     var shape: List[Int]
     var strides: List[Int]
     var ndim: Int
+    var _alloc_size: Int
     var size: Int
 
     fn __init__(out self, shape: List[Int]):
@@ -31,19 +32,21 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
 
         comptime simd_width = simd_width_of[Self.dtype]()
 
-        self.size = Int(ceildiv(self.size, simd_width) * simd_width)
-        self.data = alloc[Scalar[Self.dtype]](self.size)
+        self._alloc_size = Int(ceildiv(self.size, simd_width) * simd_width)
+        self.data = alloc[Scalar[Self.dtype]](self._alloc_size)
 
     fn __del__(deinit self):
         self.data.free()
 
     fn __copyinit__(out self, copy: NDArray[Self.dtype]):
-        self.data = alloc[Scalar[Self.dtype]](copy.size)
+        self.data = alloc[Scalar[Self.dtype]](copy._alloc_size)
         self.shape = copy.shape.copy()
         self.strides = copy.strides.copy()
         self.ndim = copy.ndim
         self.size = copy.size
-        memcpy[Scalar[Self.dtype]](dest=self.data, src=copy.data, count=self.size)
+        comptime simd_width = simd_width_of[Self.dtype]()
+        self._alloc_size = Int(ceildiv(self.size, simd_width) * simd_width)
+        memcpy[Scalar[Self.dtype]](dest=self.data, src=copy.data, count=self._alloc_size)
 
     @always_inline
     fn _flat_index(self, indices: VariadicList[Int]) -> Int:
@@ -74,17 +77,43 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
     fn fill(mut self, value: Scalar[Self.dtype]):
         comptime simd_width = simd_width_of[Self.dtype]()
         var broadcast = SIMD[Self.dtype, simd_width](value)
-        for i in range(0, self.size, simd_width):
+        for i in range(0, self._alloc_size, simd_width):
             self.data.store(i, broadcast)
 
     @always_inline
-    def __add__(mut self, other: NDArray[Self.dtype]):
-        # assert self.shape == other.shape
+    fn __add__(mut self, other: NDArray[Self.dtype]) -> NDArray[Self.dtype]:
+        debug_assert(self._alloc_size == other._alloc_size,"Addition requires arrays of the same size")
+        var res = NDArray[Self.dtype](self.shape)
         comptime simd_width = simd_width_of[Self.dtype]()
-        for i in range(0, self.size, simd_width):
+        for i in range(0, self._alloc_size, simd_width):
             var a = self.data.load[simd_width](i)
             var b = other.data.load[simd_width](i)
-            self.data.store(i, a + b)
+            res.data.store(i, a + b)
+        return res
+
+    @always_inline
+    fn __mul__(mut self, scalar: Scalar[Self.dtype]) -> NDArray[Self.dtype]:
+        var res = NDArray[Self.dtype](self.shape)
+        comptime simd_width = simd_width_of[Self.dtype]()
+        var broadcast = SIMD[Self.dtype, simd_width](scalar)
+        for i in range(0, self._alloc_size, simd_width):
+            var a = self.data.load[simd_width](i)
+            res.data.store(i, a * broadcast)
+        return res
+
+    fn __rmul__(mut self, scalar: Scalar[Self.dtype]) -> NDArray[Self.dtype]:
+        return self.__mul__(scalar)
+
+    @always_inline
+    fn __sub__(mut self, other: NDArray[Self.dtype]) -> NDArray[Self.dtype]:
+        debug_assert(self._alloc_size == other._alloc_size,"Subtraction requires arrays of the same size")
+        var res = NDArray[Self.dtype](self.shape)
+        comptime simd_width = simd_width_of[Self.dtype]()
+        for i in range(0, self._alloc_size, simd_width):
+            var a = self.data.load[simd_width](i)
+            var b = other.data.load[simd_width](i)
+            res.data.store(i, a - b)
+        return res
 
     fn zeros(mut self):
         self.fill(0)
@@ -100,6 +129,32 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
     fn random(mut self):
         rand(self.data, self.size)
 
+    fn sum(self) -> Scalar[Self.dtype]:
+        comptime simd_width = simd_width_of[Self.dtype]()
+        var total = SIMD[Self.dtype, simd_width](0)
+        for i in range(0, self.size, simd_width):
+            var chunk = self.data.load[simd_width](i)
+            total += chunk
+        # Horizontal add to reduce SIMD vector to a single scalar
+        var result = Scalar[Self.dtype](0)
+        for i in range(simd_width):
+            result += total[i]
+        return result
+
+    fn elementwise_square(mut self):
+        comptime simd_width = simd_width_of[Self.dtype]()
+        for i in range(0, self._alloc_size, simd_width):
+            var chunk = self.data.load[simd_width](i)
+            self.data.store(i, chunk * chunk)
+
+    fn elementwise_mul(mut self, other: NDArray[Self.dtype]):
+        debug_assert(self._alloc_size == other._alloc_size,"elementwise_mul requires arrays of the same size")
+        comptime simd_width = simd_width_of[Self.dtype]()
+        for i in range(0, self._alloc_size, simd_width):
+            var a = self.data.load[simd_width](i)
+            var b = other.data.load[simd_width](i)
+            self.data.store(i, a * b)
+
     fn transpose(mut self):
         # Swap shape and strides for the last two dimensions
         if self.ndim < 2:
@@ -107,7 +162,7 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
         self.shape[self.ndim - 1], self.shape[self.ndim - 2] = self.shape[self.ndim - 2], self.shape[self.ndim - 1]
         self.strides[self.ndim - 1], self.strides[self.ndim - 2] = self.strides[self.ndim - 2], self.strides[self.ndim - 1]
 
-    fn matmut(mut self, other: NDArray[Self.dtype]) -> NDArray[Self.dtype]:
+    fn matmul(mut self, other: NDArray[Self.dtype]) -> NDArray[Self.dtype]:
         # Simple matrix multiplication for last two dimensions
         debug_assert(self.ndim == 2 and other.ndim == 2)
         debug_assert(self.shape[:2] == other.shape[:2])
@@ -215,7 +270,7 @@ def main():
     mat1.random()
     mat2 = NDArray[DType.int32]([2,3,2])
     mat2.random()
-    var product = mat1.matmut(mat2)
+    var product = mat1.matmul(mat2)
     print("mat1:\n" + String(mat1))
     print("mat2:\n" + String(mat2))
     print("product:\n" + String(product))
