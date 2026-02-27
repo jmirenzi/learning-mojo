@@ -33,11 +33,6 @@ struct NDArray[dtype: DType](Stringable):
 
         var size_near_simd : Int = Int(ceildiv(self.size, simd_width) * simd_width)
         self.data = alloc[Scalar[Self.dtype]](size_near_simd)
-        # self.data = UnsafePointer[Scalar[Self.dtype]].alloc(Int(ceildiv(self.size, simd_width) * simd_width))
-        # self.data = UnsafePointer[Scalar[Self.dtype]].alloc(size_near_simd)
-        # self.data = UnsafePointer[Scalar[Self.dtype]].alloc(self.size)
-
-
 
     fn __del__(deinit self):
         self.data.free()
