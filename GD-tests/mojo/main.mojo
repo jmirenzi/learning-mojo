@@ -36,18 +36,18 @@ fn generate_radial_points[dtype:DType](N: Int, dim: Int) -> NDArray[dtype]:
 
 @always_inline
 fn bechmarking[dtype:DType, dim: Int](mut X: NDArray[dtype], D: NDArray[dtype], learning_rate: Scalar[dtype], num_iters: Int) raises:
-
+    comptime NUM_PARALLEL: Int = 12
     @parameter
     fn test_fun_simple():
         _ = gradient_descent_simple[dtype](X, D, learning_rate, num_iters)
     @parameter
     fn test_fun():
-        _ = gradient_descent_fast[dtype,dim](X, D, learning_rate, num_iters)
+        _ = gradient_descent_fast[dtype,dim,NUM_PARALLEL](X, D, learning_rate, num_iters)
 
-    print("Running simple gradient descent benchmark...")
-    var report_simple = benchmark.run[test_fun_simple]()
-    report_simple.print()
-    print("Running parameterized vectorized gradient descent benchmark...")
+    # print("Running simple gradient descent benchmark...")
+    # var report_simple = benchmark.run[test_fun_simple]()
+    # report_simple.print()
+    print("Running parameterized vectorized gradient descent benchmark with num_parallel=", NUM_PARALLEL, "...")
     var report_parameterized = benchmark.run[test_fun]()
     # Prevent the matrices from being freed before the benchmark run
     _ = (X, D)

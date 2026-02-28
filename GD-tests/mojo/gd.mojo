@@ -56,7 +56,7 @@ fn gradient_descent_simple[dtype: DType](
 
 # ── SIMD + parallel version ──────────────────────────────────────────────────
 
-fn _compute_gradient_into[dtype: DType, dim: Int](
+fn _compute_gradient_into[dtype: DType, dim: Int, num_parallel: Int](
     X: NDArray[dtype], D: NDArray[dtype], mut grad: NDArray[dtype]
 ):
     """
@@ -114,10 +114,10 @@ fn _compute_gradient_into[dtype: DType, dim: Int](
                 grad.data.store(xi_base + d, g + res_rem * (xi - xj))
 
     # Each row i of grad is independent — safe to parallelize
-    parallelize[calc_row](N)
+    parallelize[calc_row](N, num_parallel)
 
 
-fn gradient_descent_fast[dtype: DType, dim: Int](
+fn gradient_descent_fast[dtype: DType, dim: Int, num_parallel: Int](
     mut X: NDArray[dtype],
     D: NDArray[dtype],
     learning_rate: Scalar[dtype],
@@ -138,7 +138,7 @@ fn gradient_descent_fast[dtype: DType, dim: Int](
 
     for _ in range(num_iters):
         grad.zeros()
-        _compute_gradient_into[dtype, dim](X, D, grad)
+        _compute_gradient_into[dtype, dim, num_parallel](X, D, grad)
 
         # X -= lr * grad  in-place, SIMD over the flat buffer
         var i = 0
