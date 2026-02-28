@@ -115,6 +115,23 @@ struct NDArray[dtype: DType](Stringable,ImplicitlyCopyable):
             res.data.store(i, a - b)
         return res
 
+    @always_inline
+    fn __isub__(mut self, other: NDArray[Self.dtype]):
+        debug_assert(self._alloc_size == other._alloc_size,"In-place subtraction requires arrays of the same size")
+        comptime simd_width = simd_width_of[Self.dtype]()
+        for i in range(0, self._alloc_size, simd_width):
+            var a = self.data.load[simd_width](i)
+            var b = other.data.load[simd_width](i)
+            self.data.store(i, a - b)
+
+    fn __iadd__(mut self, other: NDArray[Self.dtype]):
+        debug_assert(self._alloc_size == other._alloc_size,"In-place addition requires arrays of the same size")
+        comptime simd_width = simd_width_of[Self.dtype]()
+        for i in range(0, self._alloc_size, simd_width):
+            var a = self.data.load[simd_width](i)
+            var b = other.data.load[simd_width](i)
+            self.data.store(i, a + b)
+
     fn zeros(mut self):
         self.fill(0)
 
