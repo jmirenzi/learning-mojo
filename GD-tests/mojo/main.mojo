@@ -1,9 +1,10 @@
+# main.mojo - Benchmarking gradient descent implementations for MDS problem
 import benchmark
 from python import Python
-from math import cos, sin, pi
+from math import cos, sin, pi,sqrt
 
 from ndarray import NDArray
-from gd import compute_gradient_simple, generate_distance_matrix, gradient_descent
+from gd import compute_gradient_simple, generate_distance_matrix, gradient_descent_fast, gradient_descent_simple
 
 fn generate_radial_points[dtype:DType](N: Int, dim: Int) -> NDArray[dtype]:
     comptime assert dtype.is_floating_point()
@@ -22,32 +23,48 @@ fn generate_radial_points[dtype:DType](N: Int, dim: Int) -> NDArray[dtype]:
             points[i, 0] = radius * sin(phi) * cos(theta)
             points[i, 1] = radius * sin(phi) * sin(theta)
             points[i, 2] = radius * cos(phi)
+    else:
+        points.random()
+        for i in range(N):
+            var norm = Scalar[dtype](0)
+            for d in range(dim):
+                norm += points[i, d] * points[i, d]
+            norm = sqrt(norm)
+            for d in range(dim):
+                points[i, d] = radius * points[i, d] / norm
     return points
 
 @always_inline
-fn bechmarking[dtype:DType](mut X: NDArray[dtype], D: NDArray[dtype], learning_rate: Scalar[dtype], num_iters: Int) raises:
+fn bechmarking[dtype:DType, dim: Int](mut X: NDArray[dtype], D: NDArray[dtype], learning_rate: Scalar[dtype], num_iters: Int) raises:
 
     @parameter
+    fn test_fun_simple():
+        _ = gradient_descent_simple[dtype](X, D, learning_rate, num_iters)
+    @parameter
     fn test_fun():
-        _ = gradient_descent[dtype](X, D, learning_rate, num_iters)
+        _ = gradient_descent_fast[dtype,dim](X, D, learning_rate, num_iters)
 
-    var report = benchmark.run[test_fun]()
+    print("Running simple gradient descent benchmark...")
+    var report_simple = benchmark.run[test_fun_simple]()
+    report_simple.print()
+    print("Running parameterized vectorized gradient descent benchmark...")
+    var report_parameterized = benchmark.run[test_fun]()
     # Prevent the matrices from being freed before the benchmark run
     _ = (X, D)
 
-    report.print()
+    report_parameterized.print()
 
 fn main():
     N = 100
     comptime dtype = DType.float32
-    comptime dim = 2
+    comptime dim = 3
     var X = generate_radial_points[dtype](N, dim)
     D = generate_distance_matrix(X)
     comptime lr = 0.001
     comptime niter = 1000
 
     try:
-        bechmarking(X, D, learning_rate=lr, num_iters=niter)
+        bechmarking[dtype, dim](X, D, learning_rate=lr, num_iters=niter)
     except e:
         print("Error during benchmarking:", e)
 
