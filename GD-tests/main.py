@@ -1,6 +1,10 @@
+# main.py - Benchmarking and visualization of gradient descent implementations for MDS problem
+from unittest import result
+
 import numpy as np
 
 from python.gd import gradient_descent, gradient_descent_cache
+from python.gd_jax import gradient_descent_JAX, gradient_descent_cache_JAX
 from python.viz import plot_gradient_descent, plot_gradient_descent_2D, animate_gradient_descent
 
 from timeit import timeit
@@ -22,7 +26,10 @@ def generate_radial_points(N, dim):
             z = r * np.cos(phi)
             points.append([x, y, z])
     else:
-        raise ValueError("Only supports 2D and 3D")
+        points = np.random.rand(N, dim)
+        for i in range(N):
+            norm = np.linalg.norm(points[i])
+            points[i] = r * points[i] / norm
 
     return points
 
@@ -41,9 +48,11 @@ def generate_distance_matrix(points):
 
 
 NUM_ITERS = 10
-# def benchmark_gradient_descent_native(X_native, D_native, lr, niter):
-#     secs = timeit(lambda: gradient_descent_native(X_native, D_native, learning_rate=lr, num_iterations=niter), number=NUM_ITERS) / NUM_ITERS
-#     print(f"Average time python native: {secs}")
+def benchmark_gradient_descent_JAX(X, D, lr, niter):
+    result = gradient_descent_JAX(X, D, learning_rate=lr, num_iterations=niter)
+    result.block_until_ready()
+    secs = timeit(lambda: gradient_descent_JAX(X, D, learning_rate=lr, num_iterations=niter), number=NUM_ITERS) / NUM_ITERS
+    print(f"Average time JAX: {secs}")
 
 def benchmark_gradient_descent(X, D, lr, niter):
     secs = timeit(lambda: gradient_descent(X, D, learning_rate=lr, num_iterations=niter), number=NUM_ITERS) / NUM_ITERS
@@ -63,11 +72,9 @@ def benchmarks(D, dim, lr, niter, plots=True):
     # X_native = PyMatrix(X.tolist(), N, dim)
 
     ### Without visuals
-    # p1 = gradient_descent_native(X_native.copy(), D_native, learning_rate=lr, num_iterations=niter)
-    p2 = gradient_descent(X.copy(), D, learning_rate=lr, num_iterations=niter)
 
     ### Benchmarks
-    # benchmark_gradient_descent_native(X_native.copy(), D_native, lr=lr, niter=niter)
+    benchmark_gradient_descent_JAX(X.copy(), D, lr=lr, niter=niter)
     benchmark_gradient_descent(X.copy(), D, lr=lr, niter=niter)
 
     ## Visualization
@@ -88,16 +95,16 @@ if __name__ == "__main__":
 
     # Create optimization target
     n_circle = 100
-    dim_circle = 2
+    dim_circle = 3
     points = generate_radial_points(n_circle, dim_circle)           # circle/sphere
     # points = np.loadtxt("./shapes/modular.csv", delimiter=",")      # modular (N = 1000)
     # points = np.loadtxt("./shapes/flame.csv", delimiter=",")        # flame (N = 307)
-
+    print(f"Generated {len(points)} points in {points.shape[1]} dimensions.")
     # Optimization input
-    dim = 2
+    dim = dim_circle
     lr = 0.001
     niter = 1000
-    plots = True
+    plots = False
 
     benchmarks(
         D=generate_distance_matrix(points),
